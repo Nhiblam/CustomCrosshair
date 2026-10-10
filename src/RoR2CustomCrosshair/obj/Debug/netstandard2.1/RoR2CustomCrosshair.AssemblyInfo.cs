@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RoR2CustomCrosshair")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3ac0f1b1cbc363206d47aae191ead2d278747f1a")]
 [assembly: System.Reflection.AssemblyProductAttribute("RoR2CustomCrosshair")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RoR2CustomCrosshair")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

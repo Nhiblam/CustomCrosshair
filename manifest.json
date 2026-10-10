@@ -1,10 +1,10 @@
 {
   "name": "CustomCrosshair",
   "version_number": "0.1.0",
-  "website_url": "https://github.com/YOUR_USERNAME/RiskOfRain2-CustomCrosshair",
+  "website_url": "https://github.com/Nhiblam/CustomCrosshair",
   "description": "A configurable custom crosshair replacement for Risk of Rain 2.",
   "dependencies": [
     "bbepis-BepInExPack-5.4.2122",
-    "RiskofThunder-R2API_Core-5.3.0"
+    "Rune580-Risk_Of_Options-2.8.6"
   ]
 }
