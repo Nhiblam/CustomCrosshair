@@ -1,0 +1,9 @@
+{
+    "name": "CustomCrosshair",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/Nhiblam/CustomCrosshair",
+    "description": "A highly configurable in-game crosshair replacement for Risk of Rain 2.",
+    "dependencies": [
+        "AUTHOR-PACKAGE-VERSION"
+    ]
+}
