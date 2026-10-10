@@ -1,0 +1,10 @@
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\bin\Debug\netstandard2.1\RoR2CustomCrosshair.deps.json
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\bin\Debug\netstandard2.1\RoR2CustomCrosshair.dll
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\bin\Debug\netstandard2.1\RoR2CustomCrosshair.pdb
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.csproj.AssemblyReference.cache
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.AssemblyInfoInputs.cache
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.AssemblyInfo.cs
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.csproj.CoreCompileInputs.cache
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.dll
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.pdb

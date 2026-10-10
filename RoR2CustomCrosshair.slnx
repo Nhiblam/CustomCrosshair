@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/RoR2CustomCrosshair/RoR2CustomCrosshair.csproj" />
+  </Folder>
+</Solution>
