@@ -99,12 +99,21 @@ Static layers always render exactly their configured geometry.
 Dynamic mode visualizes actual weapon/projectile spread. Current support:
 
 - Commando (Double Tap) — supported, verified in-game.
-- Bandit (Burst and Blast) — supported, awaiting in-game verification.
+- Bandit (Burst and Blast) — supported, verified in-game.
+- MUL-T — supported, awaiting in-game verification (details below).
 - Other survivors — pending. Their Dynamic layers stay at the configured geometry, the same as Static.
 
 For Commando, the spread source is the body's `spreadBloomAngle`, which Double Tap uses as the maximum angle (in degrees) each bullet may deviate from the aim direction. That angle is projected through the gameplay camera's field of view into screen pixels, and the growth above the resting spread is added to the configured Gap (bars) or Radius (circle). The configured value remains the resting geometry.
 
-For Bandit, the spread is the widest angle the next shot can reach, computed from the weapon's configured spread plus `spreadBloomAngle`: Burst's horizontal pellet fan (1° + bloom) and Blast's random deviation (bloom × 1.3 horizontally). Both are wider horizontally than vertically; the round crosshair shows the horizontal extent. Bandit's vanilla ammo dots (primary stock) are kept below the custom crosshair; a customizable ammo/count indicator is planned for the universal indicator system (see Generic Indicator Framework below).
+For Bandit, the spread is the widest angle the next shot can reach, computed from the weapon's configured spread plus `spreadBloomAngle`: Burst's horizontal pellet fan (1° + bloom) and Blast's random deviation (bloom × 1.3 horizontally). Both are wider horizontally than vertically; the round crosshair shows the horizontal extent. Bandit's vanilla ammo dots (primary stock) are kept below the custom crosshair; a customizable ammo/count indicator is planned for Phase C (Universal Indicator Framework).
+
+For MUL-T, the active weapon is the game's current primary skill, so Retool switching is followed immediately (no weapon is active during the swap itself). Per weapon:
+
+- Auto-Nailgun — dynamic spread (`spreadBloomAngle`, 2°–5° on the Nailgun's spread curve).
+- Rebar Puncher — custom crosshair, no spread (the weapon has zero spread). The vanilla crosshair's expand/contract is a reload/readiness timer, not spread, so Dynamic layers do not move; a readiness indicator is deferred to Phase C.
+- Scrap Launcher — custom crosshair; its spread is a fixed 1° and does not grow, so Dynamic layers do not move. The vanilla rocket-charge dots are kept.
+- Power-Saw — custom crosshair, melee, no spread.
+- Power Mode (both weapons at once) — custom crosshair with the vanilla stock dots for both weapons kept. Both weapons share one bloom value; Dynamic layers follow the Nailgun's spread when a Nailgun is equipped, otherwise they stay at base geometry.
 
 Dynamic mode is reserved specifically for actual weapon/projectile spread.
 
@@ -266,11 +275,18 @@ These will later be represented independently from the crosshair itself.
 
 ## Planned Execution
 
-### Phase B — Commando Dynamic Spread Prototype
+### Phase B — Actual Spread / Bloom Support
 
-Status: Commando's Double Tap implemented and verified in-game. Bandit's Burst and Blast implemented (Phase B2), awaiting in-game verification. No other survivor is supported yet.
+Phase A is the crosshair rendering/configuration framework. Phase B adds actual weapon spread, one survivor at a time:
 
-The next implementation target should be deliberately narrow: Commando only.
+- B1 — Commando: implemented and verified in-game.
+- B2 — Bandit: implemented and verified in-game (vanilla ammo dots kept).
+- B3 — MUL-T: implemented, awaiting in-game verification (active-weapon detection, Retool, Power Mode; vanilla stock dots kept).
+- Later — further spread-based survivors.
+
+#### B1 — Commando Dynamic Spread Prototype
+
+The first implementation target was deliberately narrow: Commando only.
 
 Goals:
 
@@ -292,9 +308,9 @@ Circle: Dynamic
 
 Only layers set to Dynamic should react to Commando's weapon spread.
 
-### Phase C — Generic Dynamic Spread Framework
+#### Phase B — Generic Spread Framework (ongoing)
 
-After the Commando prototype works:
+Built up across B1–B3 and extended with each new survivor:
 
 - Generalize the spread-data interface.
 - Separate gameplay spread acquisition from rendering.
@@ -305,9 +321,9 @@ After the Commando prototype works:
 
 The renderer should not contain survivor-specific conditionals.
 
-### Phase D — Generic Indicator Framework
+### Phase C — Universal Indicator Framework
 
-Add separate indicator systems that are not part of Dynamic crosshair spread.
+Add separate indicator systems that are not part of Dynamic crosshair spread (count dots, numeric counts, charge bars, timer bars, readiness bars). Vanilla ammo/stock dots currently kept for Bandit and MUL-T will move to this system.
 
 #### Charge / Timer Bar
 

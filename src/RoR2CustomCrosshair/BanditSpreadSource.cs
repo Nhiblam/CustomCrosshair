@@ -61,11 +61,11 @@ internal sealed class BanditSpreadSource : ISpreadSource
     private SkillDef? _lastPrimarySkill;
     private Weapon? _lastWeapon;
 
-    // Temporary Phase B2 diagnostics: one summary per body and primary.
+    // One summary line per body and primary (validated in-game; no per-second samples).
     private CharacterBody? _loggedBody;
     private Weapon? _loggedWeapon;
 
-    public bool LogSamples => true;
+    public bool LogSamples => false;
 
     public bool CanHandle(CharacterBody body)
     {

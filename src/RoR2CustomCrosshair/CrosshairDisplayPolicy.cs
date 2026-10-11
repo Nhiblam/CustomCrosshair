@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using RoR2;
+using RoR2.Skills;
 using RoR2.UI;
 using UnityEngine;
 
@@ -9,11 +10,12 @@ namespace RoR2CustomCrosshair;
 /// Decides which template, if any, replaces the crosshair CrosshairManager
 /// picked. Independent of spread: a custom crosshair can be fully static.
 ///
-/// Replaced: the body's ordinary crosshair (default, or a loadout crosshair
-/// below Skill priority), the generic sprint crosshair, and vanilla skill
-/// crosshairs verified to be purely cosmetic. Everything else (scopes,
-/// painters, charge indicators, survivor-specific sprint crosshairs) stays
-/// vanilla.
+/// Replaced: the body's ordinary crosshair (default, a loadout crosshair
+/// below Skill priority, or the active MUL-T weapon's crosshair), the generic
+/// sprint crosshair, vanilla crosshairs whose ammo displays we can keep, and
+/// vanilla skill crosshairs verified to be purely cosmetic. Everything else
+/// (scopes, painters, charge indicators, survivor-specific sprint
+/// crosshairs) stays vanilla.
 ///
 /// Vanilla crosshairs that carry ammo information get a template that keeps
 /// those displays; if that template cannot be built, the vanilla crosshair is
@@ -26,16 +28,31 @@ internal static class CrosshairDisplayPolicy
     // Same path CrosshairManager.OnEnable loads, so this is the same asset object.
     private const string GenericSprintCrosshairPath = "Prefabs/Crosshair/SprintingCrosshair";
 
-    // Bandit's primary crosshair: parentheses (spread) + four primary-stock dots.
-    private const string BanditCrosshairAddress = "RoR2/Base/Bandit2/Bandit2Crosshair.prefab";
-
-    // Bandit's Lights Out / Desperado crosshairs: a ring with a 0.1 s scale-in
-    // animation and no spread, stock or timer data (CrosshairController has
-    // no spread positions, stock displays or remap sprites).
-    private static readonly string[] CosmeticSkillCrosshairAddresses =
+    // Vanilla crosshairs with meaningful skill-stock displays, kept until the
+    // universal indicator system replaces them.
+    private static readonly string[] StockPreservingAddresses =
     {
-        "RoR2/Base/Bandit2/Bandit2CrosshairPrepRevolver.prefab",
-        "RoR2/Base/Bandit2/Bandit2CrosshairPrepRevolverFire.prefab"
+        // Bandit primaries: parentheses (spread) + four primary-stock dots.
+        "RoR2/Base/Bandit2/Bandit2Crosshair.prefab",
+
+        // MUL-T Scrap Launcher: three spread nibs + four primary-stock dots.
+        "RoR2/Base/Toolbot/ToolbotGrenadeLauncherCrosshair.prefab",
+
+        // MUL-T Power Mode: spread nibs, decorative ring, stock dots for both weapons.
+        "RoR2/Base/Toolbot/ToolbotDualWieldCrosshair.prefab"
+    };
+
+    // Vanilla skill crosshairs with no spread, stock or timer data (their
+    // CrosshairController has no stock displays), optionally limited to one body.
+    private static readonly (string Address, string? BodyName)[] CosmeticSkillCrosshairAddresses =
+    {
+        // Bandit Lights Out / Desperado: a ring with a 0.1 s scale-in animation.
+        ("RoR2/Base/Bandit2/Bandit2CrosshairPrepRevolver.prefab", null),
+        ("RoR2/Base/Bandit2/Bandit2CrosshairPrepRevolverFire.prefab", null),
+
+        // MUL-T Retool swap and Power Mode start: the generic cannot-fire
+        // crosshair (ToolbotStanceBase.emptyCrosshairPrefab).
+        ("RoR2/Base/UI/BadCrosshair.prefab", "ToolbotBody")
     };
 
     private static Transform? _holder;
@@ -43,7 +60,10 @@ internal static class CrosshairDisplayPolicy
 
     // Vanilla crosshair -> template keeping its stock displays (null: keep vanilla).
     private static readonly Dictionary<GameObject, GameObject?> StockPreserving = new();
-    private static readonly HashSet<GameObject> CosmeticSkillCrosshairs = new();
+
+    // Cosmetic skill crosshair -> body it applies to (null: any body).
+    private static readonly Dictionary<GameObject, string?> CosmeticSkillCrosshairs = new();
+    private static readonly Dictionary<string, BodyIndex> BodyIndices = new();
 
     private static GameObject? _genericSprintCrosshair;
     private static bool _genericSprintCrosshairLoaded;
@@ -56,7 +76,7 @@ internal static class CrosshairDisplayPolicy
     internal static void Initialize(Transform holder)
     {
         _holder = holder;
-        _pendingLoads = 2 + CosmeticSkillCrosshairAddresses.Length;
+        _pendingLoads = 1 + StockPreservingAddresses.Length + CosmeticSkillCrosshairAddresses.Length;
 
         CrosshairPrefabFactory.LoadAsync(StandardCrosshairAddress, standard =>
         {
@@ -73,28 +93,31 @@ internal static class CrosshairDisplayPolicy
             _pendingLoads--;
         });
 
-        CrosshairPrefabFactory.LoadAsync(BanditCrosshairAddress, bandit =>
+        foreach (string address in StockPreservingAddresses)
         {
-            if (bandit != null)
+            CrosshairPrefabFactory.LoadAsync(address, vanilla =>
             {
-                GameObject? template = Build(bandit, b => CrosshairPrefabFactory.BuildStockPreserving(b, holder));
-                StockPreserving[bandit] = template;
-                if (template == null)
+                if (vanilla != null)
                 {
-                    Plugin.Log.LogWarning($"{bandit.name}: ammo displays could not be preserved; its vanilla crosshair will be kept.");
+                    GameObject? template = Build(vanilla, v => CrosshairPrefabFactory.BuildStockPreserving(v, holder));
+                    StockPreserving[vanilla] = template;
+                    if (template == null)
+                    {
+                        Plugin.Log.LogWarning($"{vanilla.name}: ammo displays could not be preserved; its vanilla crosshair will be kept.");
+                    }
                 }
-            }
 
-            _pendingLoads--;
-        });
+                _pendingLoads--;
+            });
+        }
 
-        foreach (string address in CosmeticSkillCrosshairAddresses)
+        foreach ((string address, string? bodyName) in CosmeticSkillCrosshairAddresses)
         {
             CrosshairPrefabFactory.LoadAsync(address, prefab =>
             {
                 if (prefab != null)
                 {
-                    CosmeticSkillCrosshairs.Add(prefab);
+                    CosmeticSkillCrosshairs[prefab] = bodyName;
                 }
 
                 _pendingLoads--;
@@ -107,6 +130,7 @@ internal static class CrosshairDisplayPolicy
         _standardTemplate = null;
         StockPreserving.Clear();
         CosmeticSkillCrosshairs.Clear();
+        BodyIndices.Clear();
         _holder = null;
     }
 
@@ -121,16 +145,18 @@ internal static class CrosshairDisplayPolicy
             return null;
         }
 
-        if (IsOrdinaryCrosshair(body, picked))
+        if (StockPreserving.ContainsKey(picked) ||
+            IsOrdinaryCrosshair(body, picked) ||
+            IsActiveWeaponCrosshair(body, picked))
         {
             return TemplateFor(picked);
         }
 
         // Sprint and cosmetic skill crosshairs carry no information; show the
-        // template for the body's ordinary crosshair (keeping its ammo dots).
-        if (IsGenericSprintCrosshair(body, picked) || CosmeticSkillCrosshairs.Contains(picked))
+        // template for the body's current ordinary crosshair (keeping its ammo dots).
+        if (IsGenericSprintCrosshair(body, picked) || IsCosmeticSkillCrosshair(body, picked))
         {
-            return TemplateFor(body.defaultCrosshairPrefab);
+            return TemplateFor(ActiveWeaponCrosshair(body) ?? body.defaultCrosshairPrefab);
         }
 
         return null;
@@ -144,6 +170,48 @@ internal static class CrosshairDisplayPolicy
         }
 
         return _standardTemplate;
+    }
+
+    /// <summary>
+    /// MUL-T's stance states request the active weapon's
+    /// ToolbotWeaponSkillDef.crosshairPrefab at Skill priority; for MUL-T that
+    /// is the ordinary crosshair. Null when the primary is not a MUL-T weapon,
+    /// including during the Retool swap (primary slot unset), so stock-dot
+    /// templates (which read the primary slot) are never shown then.
+    /// </summary>
+    private static GameObject? ActiveWeaponCrosshair(CharacterBody body)
+    {
+        GenericSkill? primary = body.skillLocator ? body.skillLocator.primary : null;
+        return primary && primary!.skillDef is ToolbotWeaponSkillDef weapon && weapon.crosshairPrefab
+            ? weapon.crosshairPrefab
+            : null;
+    }
+
+    private static bool IsActiveWeaponCrosshair(CharacterBody body, GameObject picked)
+    {
+        GameObject? weaponCrosshair = ActiveWeaponCrosshair(body);
+        return weaponCrosshair != null && picked == weaponCrosshair;
+    }
+
+    private static bool IsCosmeticSkillCrosshair(CharacterBody body, GameObject picked)
+    {
+        if (!CosmeticSkillCrosshairs.TryGetValue(picked, out string? bodyName))
+        {
+            return false;
+        }
+
+        if (bodyName == null)
+        {
+            return true;
+        }
+
+        if (!BodyIndices.TryGetValue(bodyName, out BodyIndex index) || index == BodyIndex.None)
+        {
+            index = BodyCatalog.FindBodyIndex(bodyName);
+            BodyIndices[bodyName] = index;
+        }
+
+        return index != BodyIndex.None && body.bodyIndex == index;
     }
 
     private static GameObject? Build(GameObject? source, System.Func<GameObject, GameObject?> build)

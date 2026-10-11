@@ -24,7 +24,8 @@ internal sealed class HudCrosshairDriver : MonoBehaviour
     private static readonly ISpreadSource[] SpreadSources =
     {
         new CommandoSpreadSource(),
-        new BanditSpreadSource()
+        new BanditSpreadSource(),
+        new ToolbotSpreadSource()
     };
 
     // Offsets are quantized so the view only re-applies on visible changes.
