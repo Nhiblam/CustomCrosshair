@@ -71,9 +71,12 @@ internal readonly struct PixelFrame
     /// (bar inner edge, ring inner radius). The mirrored edge is a boundary
     /// too because 2 * center is a whole number.
     /// </summary>
-    internal float EdgeDistance(float logical)
+    /// <param name="logical">Configured distance (pixels at 1920x1080).</param>
+    /// <param name="extraPixels">Added screen pixels (dynamic spread) before snapping.</param>
+    internal float EdgeDistance(float logical, float extraPixels = 0f)
     {
-        return Mathf.Floor(CenterFraction + Mathf.Max(0f, logical) * ResolutionScale + 0.5f) - CenterFraction;
+        float pixels = Mathf.Max(0f, Mathf.Max(0f, logical) * ResolutionScale + extraPixels);
+        return Mathf.Floor(CenterFraction + pixels + 0.5f) - CenterFraction;
     }
 
     internal float ToLocal(float pixels)
@@ -220,7 +223,7 @@ internal sealed class BarsLayer
 
     internal float Thickness => _settings.Thickness.Value;
 
-    /// <param name="dynamicOffset">Extra gap in configured units; used only in Dynamic mode.</param>
+    /// <param name="dynamicOffset">Extra gap in screen pixels; used only in Dynamic mode.</param>
     internal void Apply(in PixelFrame frame, float dynamicOffset)
     {
         if (!Enabled)
@@ -233,14 +236,10 @@ internal sealed class BarsLayer
             return;
         }
 
-        float gap = _settings.Gap.Value;
-        if (_settings.Mode.Value == CrosshairMode.Dynamic)
-        {
-            gap += dynamicOffset;
-        }
+        float extra = _settings.Mode.Value == CrosshairMode.Dynamic ? dynamicOffset : 0f;
 
         float half = frame.CenteredSize(_settings.Thickness.Value) * 0.5f;
-        float inner = frame.EdgeDistance(gap);
+        float inner = frame.EdgeDistance(_settings.Gap.Value, extra);
         float outer = inner + frame.Width(_settings.Length.Value);
 
         Color fill = _settings.Fill.Value;
@@ -254,25 +253,82 @@ internal sealed class BarsLayer
     }
 }
 
-/// <summary>Square dot on the center. Always static.</summary>
+/// <summary>
+/// A sprite-less Image whose quad <see cref="RingMesh"/> replaces with
+/// concentric bands around the shared center: a hollow ring (Circle) or,
+/// with an inner radius of zero, a filled disc (Center Dot).
+/// </summary>
+internal sealed class RingPart
+{
+    // Segment length along the outer edge, in pixels; smooth with the 1 px feather.
+    private const float SegmentPixels = 1.5f;
+    private const int MinSegments = 24;
+    private const int MaxSegments = 512;
+
+    private readonly RingMesh _mesh;
+    private readonly Image _image;
+
+    private RingPart(Transform layer, string name)
+    {
+        _mesh = layer.Find(name).GetComponent<RingMesh>();
+        _image = _mesh.Image;
+    }
+
+    internal static RingPart Bind(Transform layer, string name) => new(layer, name);
+
+    internal static void Build(Transform layer, string name)
+    {
+        // Created disabled like every other part; enabled on first Apply.
+        CrosshairPrefabFactory.CreateImage(name, layer);
+        layer.Find(name).gameObject.AddComponent<RingMesh>();
+    }
+
+    /// <param name="inner">Inner edge radius in pixels; 0 for a filled disc.</param>
+    /// <param name="outer">Outer edge radius in pixels.</param>
+    /// <param name="border">Border width in pixels on each side; 0 for none.</param>
+    internal void Apply(in PixelFrame frame, float inner, float outer, int border, Color fill, Color borderColor)
+    {
+        float extent = outer + border + 1f;
+        int segments = Mathf.Clamp(Mathf.CeilToInt(2f * Mathf.PI * (outer + border) / SegmentPixels), MinSegments, MaxSegments);
+
+        // The pivot sits exactly on the shared center. Colors live in the
+        // generated vertices; the Image's own color is unused.
+        frame.Place(_image.rectTransform, new Vector4(-extent, -extent, extent, extent));
+        _image.color = Color.white;
+        _mesh.SetShape(
+            frame.ToLocal(inner),
+            frame.ToLocal(outer),
+            frame.ToLocal(border),
+            frame.ToLocal(1f),
+            fill,
+            borderColor,
+            segments);
+        _image.enabled = true;
+    }
+
+    internal void Hide()
+    {
+        _image.enabled = false;
+    }
+}
+
+/// <summary>Filled circular dot on the center. Always static.</summary>
 internal sealed class CenterDotLayer
 {
     private const string DotName = "Dot";
 
     private readonly DotSettings _settings;
-    private readonly BorderedRect _dot;
+    private readonly RingPart _dot;
 
     internal CenterDotLayer(Transform root, string layerName, DotSettings settings)
     {
         _settings = settings;
-        _dot = BorderedRect.Bind(root.Find(layerName), DotName);
+        _dot = RingPart.Bind(root.Find(layerName), DotName);
     }
 
     internal static void Build(Transform root, string layerName)
     {
-        Transform layer = CrosshairPrefabFactory.CreateRect(layerName, root);
-        BorderedRect.BuildBorder(layer, DotName);
-        BorderedRect.BuildFill(layer, DotName);
+        RingPart.Build(CrosshairPrefabFactory.CreateRect(layerName, root), DotName);
     }
 
     internal bool Enabled => _settings.Enabled.Value;
@@ -287,9 +343,11 @@ internal sealed class CenterDotLayer
             return;
         }
 
-        float half = frame.CenteredSize(_settings.Size.Value) * 0.5f;
+        // Same parity rule as the bars' thickness, so the dot's left/right/
+        // top/bottom extremes land on pixel boundaries around the shared center.
+        float radius = frame.CenteredSize(_settings.Size.Value) * 0.5f;
         int border = _settings.Outline.Visible ? frame.Width(_settings.Outline.Thickness.Value) : 0;
-        _dot.Apply(frame, new Vector4(-half, -half, half, half), _settings.Fill.Value, border, _settings.Outline.Color.Value);
+        _dot.Apply(frame, 0f, radius, border, _settings.Fill.Value, _settings.Outline.Color.Value);
     }
 }
 
@@ -298,67 +356,36 @@ internal sealed class CircleLayer
 {
     private const string RingName = "Ring";
 
-    // Segment length along the outer edge, in pixels; smooth with the 1 px feather.
-    private const float SegmentPixels = 1.5f;
-    private const int MinSegments = 24;
-    private const int MaxSegments = 512;
-
     private readonly CircleSettings _settings;
-    private readonly RingMesh _ring;
-    private readonly Image _image;
+    private readonly RingPart _ring;
 
     internal CircleLayer(Transform root, string layerName, CircleSettings settings)
     {
         _settings = settings;
-        _ring = root.Find(layerName).Find(RingName).GetComponent<RingMesh>();
-        _image = _ring.Image;
+        _ring = RingPart.Bind(root.Find(layerName), RingName);
     }
 
     internal static void Build(Transform root, string layerName)
     {
-        Transform layer = CrosshairPrefabFactory.CreateRect(layerName, root);
-
-        // A disabled sprite-less Image whose quad RingMesh replaces with the ring.
-        CrosshairPrefabFactory.CreateImage(RingName, layer);
-        layer.Find(RingName).gameObject.AddComponent<RingMesh>();
+        RingPart.Build(CrosshairPrefabFactory.CreateRect(layerName, root), RingName);
     }
 
-    /// <param name="dynamicOffset">Extra radius in configured units; used only in Dynamic mode.</param>
+    /// <param name="dynamicOffset">Extra radius in screen pixels; used only in Dynamic mode.</param>
     internal void Apply(in PixelFrame frame, float dynamicOffset)
     {
         if (!_settings.Enabled.Value)
         {
-            _image.enabled = false;
+            _ring.Hide();
             return;
         }
 
-        float radius = _settings.Radius.Value;
-        if (_settings.Mode.Value == CrosshairMode.Dynamic)
-        {
-            radius += dynamicOffset;
-        }
+        float extra = _settings.Mode.Value == CrosshairMode.Dynamic ? dynamicOffset : 0f;
 
         // Inner edge snapped like the bars' gap: its axis-aligned extremes
         // land on pixel boundaries around the shared center.
-        float inner = frame.EdgeDistance(radius);
+        float inner = frame.EdgeDistance(_settings.Radius.Value, extra);
         float outer = inner + frame.Width(_settings.Thickness.Value);
         int border = _settings.Outline.Visible ? frame.Width(_settings.Outline.Thickness.Value) : 0;
-        float extent = outer + border + 1f;
-
-        int segments = Mathf.Clamp(Mathf.CeilToInt(2f * Mathf.PI * (outer + border) / SegmentPixels), MinSegments, MaxSegments);
-
-        // The ring's pivot sits exactly on the shared center. Colors live in
-        // the generated vertices; the Image's own color is unused.
-        frame.Place(_image.rectTransform, new Vector4(-extent, -extent, extent, extent));
-        _image.color = Color.white;
-        _ring.SetShape(
-            frame.ToLocal(inner),
-            frame.ToLocal(outer),
-            frame.ToLocal(border),
-            frame.ToLocal(1f),
-            _settings.Fill.Value,
-            _settings.Outline.Color.Value,
-            segments);
-        _image.enabled = true;
+        _ring.Apply(frame, inner, outer, border, _settings.Fill.Value, _settings.Outline.Color.Value);
     }
 }

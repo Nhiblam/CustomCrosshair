@@ -6,7 +6,8 @@ namespace RoR2CustomCrosshair;
 
 /// <summary>
 /// Procedural concentric-band mesh: a hollow ring with optional inner and
-/// outer border bands. No texture or shader: the default UI material draws
+/// outer border bands, or a filled disc with an outer border band when the
+/// inner radius is zero. No texture or shader: the default UI material draws
 /// vertex colors, and every band edge gets a one-pixel alpha feather
 /// (centered on the edge) for anti-aliasing. Where two bands meet, the
 /// feather blends color-to-color instead of fading to transparent, so the

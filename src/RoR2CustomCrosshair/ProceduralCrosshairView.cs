@@ -4,9 +4,9 @@ using UnityEngine;
 namespace RoR2CustomCrosshair;
 
 /// <summary>
-/// Extra gap/radius per layer, in configured units (pixels at 1920x1080).
-/// Applied only to layers in Dynamic mode. Nothing sets these yet: a later
-/// phase will feed actual weapon/projectile spread here.
+/// Extra gap/radius per layer, in screen pixels: the projected growth of
+/// actual weapon spread above its resting value. Applied only to layers in
+/// Dynamic mode; Static layers ignore it.
 /// </summary>
 internal readonly struct DynamicOffsets : IEquatable<DynamicOffsets>
 {
@@ -49,6 +49,7 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
     private CenterDotLayer _centerDot = null!;
 
     private Canvas? _canvas;
+    private HudCrosshairDriver? _driver;
 
     private int _lastRevision = -1;
     private int _lastScreenWidth = -1;
@@ -57,9 +58,6 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
     private Vector2 _lastRootScreen;
     private Vector2 _lastAnchorScreen;
     private DynamicOffsets _lastOffsets;
-
-    /// <summary>Per-layer dynamic offsets; all zero until a spread source exists.</summary>
-    internal DynamicOffsets Offsets { get; set; }
 
     private void Awake()
     {
@@ -80,6 +78,7 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
     private void OnTransformParentChanged()
     {
         _canvas = null;
+        _driver = null;
     }
 
     private void LateUpdate()
@@ -111,7 +110,14 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
 
         Vector2 rootScreen = RectTransformUtility.WorldToScreenPoint(camera, _root.position);
         Vector2 anchorScreen = RectTransformUtility.WorldToScreenPoint(camera, GetIntendedCenterWorld());
-        DynamicOffsets offsets = Offsets;
+
+        // The HUD's driver knows the body and camera; this view only renders.
+        if (_driver == null)
+        {
+            _driver = GetComponentInParent<HudCrosshairDriver>();
+        }
+
+        DynamicOffsets offsets = _driver != null ? _driver.GetDynamicOffsets() : default;
 
         if (_lastRevision == CrosshairConfig.Revision &&
             _lastScreenWidth == Screen.width &&

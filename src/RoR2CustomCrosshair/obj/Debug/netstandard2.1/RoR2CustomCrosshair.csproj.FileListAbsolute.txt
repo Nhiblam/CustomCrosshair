@@ -8,3 +8,4 @@ C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\
 C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.csproj.CoreCompileInputs.cache
 C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.dll
 C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.pdb
+C:\Users\yomama\Desktop\3\RoR2CustomCrosshair\src\RoR2CustomCrosshair\obj\Debug\netstandard2.1\RoR2CustomCrosshair.sourcelink.json

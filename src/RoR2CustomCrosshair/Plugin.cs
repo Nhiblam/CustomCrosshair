@@ -15,9 +15,6 @@ public sealed class Plugin : BaseUnityPlugin
 
     internal static ManualLogSource Log { get; private set; } = null!;
 
-    /// <summary>Crosshair template; null until the async load finishes or if it failed.</summary>
-    internal static GameObject? CrosshairPrefab { get; private set; }
-
     private GameObject? _prefabHolder;
 
     private void Awake()
@@ -31,18 +28,7 @@ public sealed class Plugin : BaseUnityPlugin
         _prefabHolder.SetActive(false);
         DontDestroyOnLoad(_prefabHolder);
 
-        CrosshairPrefabFactory.CreateAsync(_prefabHolder.transform, template =>
-        {
-            CrosshairPrefab = template;
-            if (template != null)
-            {
-                Log.LogInfo("Crosshair template ready.");
-            }
-            else
-            {
-                Log.LogError("Crosshair template unavailable; vanilla crosshairs will be used.");
-            }
-        });
+        CrosshairDisplayPolicy.Initialize(_prefabHolder.transform);
 
         // HUDs are created per local user by CameraRigController; plugins load
         // at startup, before any HUD exists.
@@ -66,7 +52,7 @@ public sealed class Plugin : BaseUnityPlugin
             Destroy(driver);
         }
 
-        CrosshairPrefab = null;
+        CrosshairDisplayPolicy.Shutdown();
         if (_prefabHolder != null)
         {
             Destroy(_prefabHolder);

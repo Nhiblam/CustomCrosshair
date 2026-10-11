@@ -17,6 +17,7 @@ The current prototype is implemented, builds successfully, deploys into the deve
 - Procedural crosshair rendering.
 - BepInEx configuration persistence.
 - RiskOfOptions in-game configuration.
+- RiskOfOptions mod list shows the project icon (`icon.png`, embedded in the DLL).
 - Live configuration updates without restarting the game.
 - Local-player-only crosshair behavior.
 - Spectator protection.
@@ -87,15 +88,25 @@ A separate centered dot with:
 - Outline RGB
 - Outline opacity
 
-The current dot is square so it remains pixel-exact at small sizes.
+The dot is a filled circle rendered with the same generated geometry as the Circle layer. Its outline is a separate ring around the dot, so a translucent dot never shows the outline color through its interior.
+
+At very small sizes (about 2–4 px) the anti-aliased edge makes the dot look slightly soft; this keeps a correct circular shape instead of falling back to a square.
 
 ## Static and Dynamic Modes
 
-Static and Dynamic modes currently render the same geometry.
+Static layers always render exactly their configured geometry.
 
-This is intentional.
+Dynamic mode visualizes actual weapon/projectile spread. Current support:
 
-Dynamic mode is reserved specifically for future visualization of actual weapon/projectile spread.
+- Commando (Double Tap) — supported, verified in-game.
+- Bandit (Burst and Blast) — supported, awaiting in-game verification.
+- Other survivors — pending. Their Dynamic layers stay at the configured geometry, the same as Static.
+
+For Commando, the spread source is the body's `spreadBloomAngle`, which Double Tap uses as the maximum angle (in degrees) each bullet may deviate from the aim direction. That angle is projected through the gameplay camera's field of view into screen pixels, and the growth above the resting spread is added to the configured Gap (bars) or Radius (circle). The configured value remains the resting geometry.
+
+For Bandit, the spread is the widest angle the next shot can reach, computed from the weapon's configured spread plus `spreadBloomAngle`: Burst's horizontal pellet fan (1° + bloom) and Blast's random deviation (bloom × 1.3 horizontally). Both are wider horizontally than vertically; the round crosshair shows the horizontal extent. Bandit's vanilla ammo dots (primary stock) are kept below the custom crosshair; a customizable ammo/count indicator is planned for the universal indicator system (see Generic Indicator Framework below).
+
+Dynamic mode is reserved specifically for actual weapon/projectile spread.
 
 Dynamic mode will **not** represent:
 
@@ -109,7 +120,7 @@ Dynamic mode will **not** represent:
 
 Those concepts will be handled by separate indicator systems.
 
-The current renderer already exposes independent future dynamic offsets for:
+The renderer exposes independent dynamic offsets for:
 
 - Inner Bars
 - Outer Bars
@@ -256,6 +267,8 @@ These will later be represented independently from the crosshair itself.
 ## Planned Execution
 
 ### Phase B — Commando Dynamic Spread Prototype
+
+Status: Commando's Double Tap implemented and verified in-game. Bandit's Burst and Blast implemented (Phase B2), awaiting in-game verification. No other survivor is supported yet.
 
 The next implementation target should be deliberately narrow: Commando only.
 

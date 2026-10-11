@@ -65,6 +65,12 @@ internal static class CrosshairConfig
             "Procedural crosshair with Inner Bars, Outer Bars, Circle and Center Dot layers. " +
             "Sizes are pixels at 1920x1080 and scale with resolution.");
 
+        Sprite? icon = ModIcon.Load();
+        if (icon != null)
+        {
+            ModSettingsManager.SetModIcon(icon, Plugin.PluginGuid, Plugin.PluginName);
+        }
+
         ModSettingsManager.AddOption(new CheckBoxOption(Enabled));
 
         InnerBars.Register();
@@ -293,7 +299,7 @@ internal sealed class CircleSettings
     }
 }
 
-/// <summary>Square dot at the center. Always static.</summary>
+/// <summary>Circular dot at the center. Always static.</summary>
 internal sealed class DotSettings
 {
     internal const float MaxSize = 20f;
@@ -307,7 +313,7 @@ internal sealed class DotSettings
     {
         Enabled = config.Bind(section, "Enabled", false, "Show the center dot.");
         Size = CrosshairConfig.BindFloat(config, section, "Size", 2f, 0.5f, MaxSize,
-            "Width and height of the dot, in pixels at 1920x1080.");
+            "Diameter of the dot, in pixels at 1920x1080.");
         Fill = new ColorSettings(config, section, "", new Color32(0, 255, 0, 255));
         Outline = new OutlineSettings(config, section);
     }
