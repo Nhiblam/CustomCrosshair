@@ -4,8 +4,8 @@ using UnityEngine;
 namespace RoR2CustomCrosshair;
 
 /// <summary>
-/// Extra gap/radius per layer, in screen pixels: the projected growth of
-/// actual weapon spread above its resting value. Applied only to layers in
+/// Extra gap/radius per layer, in screen pixels: the projected actual current
+/// firing envelope (absolute, not growth above rest). Applied only to layers in
 /// Dynamic mode; Static layers ignore it.
 /// </summary>
 internal readonly struct DynamicOffsets : IEquatable<DynamicOffsets>
@@ -59,6 +59,10 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
     private Vector2 _lastAnchorScreen;
     private DynamicOffsets _lastOffsets;
 
+    // Generic indicators (null if the layer could not be built).
+    private IndicatorLayer? _indicators;
+    private readonly IndicatorFrame _lastIndicators = new();
+
     private void Awake()
     {
         _rect = (RectTransform)transform;
@@ -68,6 +72,9 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
         _outerBars = new BarsLayer(_root, CrosshairPrefabFactory.OuterBarsLayerName, CrosshairConfig.OuterBars);
         _innerBars = new BarsLayer(_root, CrosshairPrefabFactory.InnerBarsLayerName, CrosshairConfig.InnerBars);
         _centerDot = new CenterDotLayer(_root, CrosshairPrefabFactory.CenterDotLayerName, CrosshairConfig.CenterDot);
+
+        Transform indicatorLayer = _root.Find(CrosshairPrefabFactory.IndicatorLayerName);
+        _indicators = indicatorLayer != null ? new IndicatorLayer(indicatorLayer) : null;
 
         // CrosshairManager instantiates us inside its LateUpdate, so our own
         // LateUpdate does not run before the first rendered frame. Configure
@@ -118,24 +125,40 @@ internal sealed class ProceduralCrosshairView : MonoBehaviour
         }
 
         DynamicOffsets offsets = _driver != null ? _driver.GetDynamicOffsets() : default;
+        IndicatorFrame? indicators = _indicators != null && _driver != null ? _driver.GetIndicators() : null;
 
-        if (_lastRevision == CrosshairConfig.Revision &&
-            _lastScreenWidth == Screen.width &&
-            _lastScreenHeight == Screen.height &&
-            Mathf.Approximately(_lastPixelsPerUnit, pixelsPerUnit) &&
-            (_lastRootScreen - rootScreen).sqrMagnitude < 1e-6f &&
-            (_lastAnchorScreen - anchorScreen).sqrMagnitude < 1e-6f &&
-            _lastOffsets.Equals(offsets))
+        bool geometryChanged =
+            _lastRevision != CrosshairConfig.Revision ||
+            _lastScreenWidth != Screen.width ||
+            _lastScreenHeight != Screen.height ||
+            !Mathf.Approximately(_lastPixelsPerUnit, pixelsPerUnit) ||
+            (_lastRootScreen - rootScreen).sqrMagnitude >= 1e-6f ||
+            (_lastAnchorScreen - anchorScreen).sqrMagnitude >= 1e-6f;
+        bool offsetsChanged = !_lastOffsets.Equals(offsets);
+        bool indicatorsChanged = indicators != null && !indicators.ContentEquals(_lastIndicators);
+
+        if (!geometryChanged && !offsetsChanged && !indicatorsChanged)
         {
             return;
         }
 
         PixelFrame frame = CreateFrame(pixelsPerUnit, anchorScreen, rootScreen);
 
-        _circle.Apply(frame, offsets.Circle);
-        _outerBars.Apply(frame, offsets.OuterBars);
-        _innerBars.Apply(frame, offsets.InnerBars);
-        _centerDot.Apply(frame);
+        if (geometryChanged || offsetsChanged)
+        {
+            _circle.Apply(frame, offsets.Circle);
+            _outerBars.Apply(frame, offsets.OuterBars);
+            _innerBars.Apply(frame, offsets.InnerBars);
+            _centerDot.Apply(frame);
+        }
+
+        // Indicators are laid out from the configured crosshair, not the
+        // Dynamic offsets, so spread never moves them.
+        if (indicators != null && (geometryChanged || indicatorsChanged))
+        {
+            _indicators!.Apply(frame, indicators);
+            indicators.CopyTo(_lastIndicators);
+        }
 
         LogLayoutOnce(rootCanvas, frame, rootScreen, anchorScreen);
 

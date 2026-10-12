@@ -21,21 +21,38 @@ namespace RoR2CustomCrosshair;
 internal sealed class HudCrosshairDriver : MonoBehaviour
 {
     // Real weapon spread observers, shared by every HUD (read-only, cached per skill).
-    private static readonly ISpreadSource[] SpreadSources =
+    private static readonly ISpreadSource[] SpreadSources = CreateSpreadSources();
+
+    private static ISpreadSource[] CreateSpreadSources()
     {
-        new CommandoSpreadSource(),
-        new BanditSpreadSource(),
-        new ToolbotSpreadSource()
-    };
+        var sources = new System.Collections.Generic.List<ISpreadSource>
+        {
+            new CommandoSpreadSource(),
+            new BanditSpreadSource(),
+            new ToolbotSpreadSource()
+        };
+        sources.AddRange(BaseGameSurvivorSpread.Create());
+        sources.AddRange(DlcSurvivorSpread.Create());
+        return sources.ToArray();
+    }
 
     // Offsets are quantized so the view only re-applies on visible changes.
     private const float OffsetStepPixels = 0.25f;
 
-    // Temporary diagnostics for sources still being validated: at most one sample per second.
+    // Temporary diagnostics for sources still being validated.
     private const float SpreadLogInterval = 1f;
     private float _nextSpreadLogTime;
+    private string? _lastLoggedContext;
+    private float _lastLoggedPixels = -1f;
 
     private readonly SpreadSourceResolver _spreadResolver = new(SpreadSources);
+
+    // Gameplay indicator observers, one set per HUD (they keep per-viewer
+    // timing state, so split-screen players never share them).
+    private readonly IndicatorSourceResolver _indicatorResolver = new(SurvivorIndicators.Create());
+    private readonly IndicatorFrame _indicators = new();
+    private int _indicatorFrameNumber = -1;
+    private CharacterBody? _indicatorBody;
 
     private CrosshairManager? _crosshairManager;
     private bool _replacing;
@@ -79,7 +96,7 @@ internal sealed class HudCrosshairDriver : MonoBehaviour
     {
         CharacterBody? body = GetOwnLiveBody(manager);
         GameObject? template = body != null && CrosshairConfig.Enabled.Value
-            ? CrosshairDisplayPolicy.ChooseTemplate(body, crosshairPrefab)
+            ? CrosshairDisplayPolicy.ChooseTemplate(body, crosshairPrefab, SampleIndicators(body))
             : null;
 
         if (template != null)
@@ -91,9 +108,9 @@ internal sealed class HudCrosshairDriver : MonoBehaviour
     }
 
     /// <summary>
-    /// Dynamic offsets for the custom crosshair on this HUD: how far, in
-    /// screen pixels, the actual weapon spread cone currently reaches beyond
-    /// its resting size. Zero unless the custom crosshair is showing for the
+    /// Dynamic offsets for the custom crosshair on this HUD: the radius, in
+    /// screen pixels, of the actual current firing envelope (inherent, fixed,
+    /// bloom and ability spread). Zero unless the custom crosshair is showing for the
     /// local user's own live body and a spread source understands that
     /// body's ordinary weapon. Read-only with respect to gameplay.
     /// </summary>
@@ -113,30 +130,74 @@ internal sealed class HudCrosshairDriver : MonoBehaviour
             return default;
         }
 
-        float current = SpreadProjection.HalfAngleToPixels(sample.CurrentDegrees, camera);
-        float resting = SpreadProjection.HalfAngleToPixels(sample.RestingDegrees, camera);
-        float pixels = Mathf.Round(Mathf.Max(0f, current - resting) / OffsetStepPixels) * OffsetStepPixels;
+        // Dynamic = configured geometry + the absolute projected envelope.
+        float projected = SpreadProjection.HalfAngleToPixels(sample.Degrees, camera);
+        float pixels = Mathf.Round(projected / OffsetStepPixels) * OffsetStepPixels;
 
         if (source!.LogSamples)
         {
-            LogSpreadSample(source, sample, camera, current, pixels);
+            LogSpreadSample(sample, camera, pixels);
         }
 
         return new DynamicOffsets(pixels, pixels, pixels);
     }
 
-    private void LogSpreadSample(ISpreadSource source, in SpreadSample sample, Camera camera, float currentPixels, float offsetPixels)
+    /// <summary>
+    /// Indicator values for the custom crosshair on this HUD, sampled at most
+    /// once per frame into a reused frame. Empty unless the custom crosshair
+    /// is showing for the local user's own live body. Read-only with respect
+    /// to gameplay.
+    /// </summary>
+    internal IndicatorFrame GetIndicators()
     {
-        if (offsetPixels <= 0f || Time.unscaledTime < _nextSpreadLogTime)
+        CharacterBody? body = _replacing && _crosshairManager ? GetOwnLiveBody(_crosshairManager!) : null;
+        if (body == null)
+        {
+            _indicators.Clear();
+            _indicatorBody = null;
+            _indicatorFrameNumber = Time.frameCount;
+            return _indicators;
+        }
+
+        return SampleIndicators(body);
+    }
+
+    /// <summary>
+    /// <paramref name="body"/>'s indicator values, sampled at most once per
+    /// frame (the template choice and the view share one sample).
+    /// </summary>
+    private IndicatorFrame SampleIndicators(CharacterBody body)
+    {
+        if (Time.frameCount != _indicatorFrameNumber || body != _indicatorBody)
+        {
+            _indicatorFrameNumber = Time.frameCount;
+            _indicatorBody = body;
+            _indicatorResolver.Sample(body, _indicators);
+        }
+
+        return _indicators;
+    }
+
+    /// <summary>
+    /// Temporary B4 diagnostics: logs immediately when the attack context
+    /// changes, otherwise at most once per second while the value changes.
+    /// </summary>
+    private void LogSpreadSample(in SpreadSample sample, Camera camera, float pixels)
+    {
+        bool contextChanged = sample.Context != _lastLoggedContext;
+        bool valueChanged = Mathf.Abs(pixels - _lastLoggedPixels) >= OffsetStepPixels;
+        if (!contextChanged && (!valueChanged || Time.unscaledTime < _nextSpreadLogTime))
         {
             return;
         }
 
+        _lastLoggedContext = sample.Context;
+        _lastLoggedPixels = pixels;
         _nextSpreadLogTime = Time.unscaledTime + SpreadLogInterval;
         Plugin.Log.LogDebug(
-            $"[Spread] {source.GetType().Name}: bloom {sample.BloomDegrees:0.###} deg -> spread {sample.CurrentDegrees:0.###} deg " +
-            $"(rest {sample.RestingDegrees:0.###}), vertical FOV {camera.fieldOfView:0.#}, camera {camera.pixelWidth}x{camera.pixelHeight} -> " +
-            $"cone radius {currentPixels:0.#} px, dynamic offset +{offsetPixels:0.##} px.");
+            $"[Spread] {sample.Context}: {sample.Kind} envelope {sample.Degrees:0.###} deg, " +
+            $"vertical FOV {camera.fieldOfView:0.#}, camera {camera.pixelWidth}x{camera.pixelHeight} -> " +
+            $"projected spread radius {pixels:0.##} px.");
     }
 
     /// <summary>

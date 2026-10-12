@@ -23,6 +23,10 @@ internal static class CrosshairPrefabFactory
     internal const string OuterBarsLayerName = "OuterBars";
     internal const string InnerBarsLayerName = "InnerBars";
     internal const string CenterDotLayerName = "CenterDot";
+    internal const string IndicatorLayerName = "Indicators";
+
+    /// <summary>True if the generic indicator layer failed to build (vanilla indicators are then kept).</summary>
+    internal static bool IndicatorsUnavailable { get; private set; }
 
     /// <summary>Loads a prefab asynchronously; invokes <paramref name="onLoaded"/> with it or null.</summary>
     internal static void LoadAsync(string address, Action<GameObject?> onLoaded)
@@ -71,37 +75,61 @@ internal static class CrosshairPrefabFactory
     /// CrosshairController from the skill's stock. Its spread artwork and
     /// anything at the crosshair center (owned by the custom crosshair) are
     /// removed. Returns null when there is no such display to keep.
+    ///
+    /// With <paramref name="keepSpreadArt"/> the spread-driven art is kept and
+    /// still driven by the controller: used only while a skill writes its
+    /// charge into bloom, where that art is the vanilla charge display (not
+    /// spread). Returns null when there is nothing to keep.
+    ///
+    /// Without <paramref name="keepCounts"/> the count pips (displays shown
+    /// from stock 1 up) are dropped because the generic Count Indicator shows
+    /// that count; zero-stock status displays are still kept.
     /// </summary>
-    internal static GameObject? BuildStockPreserving(GameObject vanillaCrosshair, Transform holder)
+    internal static GameObject? BuildStockPreserving(
+        GameObject vanillaCrosshair, Transform holder, bool keepSpreadArt = false, bool keepCounts = true)
     {
-        GameObject template = Clone(vanillaCrosshair, holder, "RoR2CustomCrosshair_" + vanillaCrosshair.name, out CrosshairController controller);
+        string suffix = keepSpreadArt ? "_ChargeDisplay" : keepCounts ? "" : "_CountSuperseded";
+        GameObject template = Clone(vanillaCrosshair, holder, "RoR2CustomCrosshair_" + vanillaCrosshair.name + suffix, out CrosshairController controller);
         Transform root = template.transform;
 
         var kept = new List<CrosshairController.SkillStockSpriteDisplay>();
         foreach (CrosshairController.SkillStockSpriteDisplay display in
                  controller.skillStockSpriteDisplays ?? Array.Empty<CrosshairController.SkillStockSpriteDisplay>())
         {
-            if (display.target && !IsAtCenter(root, display.target.transform))
+            if (display.target && !IsAtCenter(root, display.target.transform) && (keepCounts || !IsCountDisplay(display)))
             {
                 kept.Add(display);
             }
         }
 
-        if (kept.Count == 0)
+        var keptSpread = new List<CrosshairController.SpritePosition>();
+        if (keepSpreadArt)
+        {
+            foreach (CrosshairController.SpritePosition spread in
+                     controller.spriteSpreadPositions ?? Array.Empty<CrosshairController.SpritePosition>())
+            {
+                if (spread.target)
+                {
+                    keptSpread.Add(spread);
+                }
+            }
+        }
+
+        if (kept.Count == 0 && keptSpread.Count == 0)
         {
             UnityEngine.Object.Destroy(template);
             return null;
         }
 
-        controller.spriteSpreadPositions = Array.Empty<CrosshairController.SpritePosition>();
+        controller.spriteSpreadPositions = keptSpread.ToArray();
         controller.remapSprites = Array.Empty<RawImage>();
         controller.skillStockSpriteDisplays = kept.ToArray();
 
-        // Keep each kept display and its parents; hide every other branch.
+        // Keep each kept display / spread target and its parents; hide every other branch.
         var keep = new HashSet<Transform>();
-        foreach (CrosshairController.SkillStockSpriteDisplay display in kept)
+        foreach (Transform target in kept.Select(d => d.target.transform).Concat(keptSpread.Select(s => (Transform)s.target)))
         {
-            for (Transform t = display.target.transform; t != null && t != root; t = t.parent)
+            for (Transform t = target; t != null && t != root; t = t.parent)
             {
                 keep.Add(t);
             }
@@ -111,8 +139,158 @@ internal static class CrosshairPrefabFactory
         AddProceduralCrosshair(template);
 
         Plugin.Log.LogDebug(
-            $"{vanillaCrosshair.name}: keeping vanilla stock displays " +
-            string.Join(", ", kept.Select(d => d.target.name)) + "; spread artwork removed.");
+            $"{vanillaCrosshair.name}{suffix}: keeping vanilla stock displays [" +
+            string.Join(", ", kept.Select(d => d.target.name)) + "]" +
+            (keepSpreadArt ? $" and charge-display art [{string.Join(", ", keptSpread.Select(s => s.target.name))}]" : "; spread artwork removed") + ".");
+        return template;
+    }
+
+    // Components that only draw, lay out or animate crosshair art.
+    private static readonly HashSet<Type> PresentationTypes = new()
+    {
+        typeof(Image), typeof(RawImage), typeof(HudElement), typeof(CrosshairController),
+        typeof(AspectRatioFitter), typeof(LayoutElement), typeof(ContentSizeFitter),
+        typeof(HorizontalLayoutGroup), typeof(VerticalLayoutGroup), typeof(GridLayoutGroup),
+        typeof(Shadow), typeof(Outline)
+    };
+
+    // Vanilla reticle sprites are at most ~100 UI units; anything bigger is an overlay.
+    private const float LargeArtUnits = 300f;
+
+    // Animation-only components used on vanilla crosshair art (matched by name
+    // because they live in different game assemblies).
+    private static readonly HashSet<string> PresentationTypeNames = new()
+    {
+        "ObjectScaleCurve", "RotateAroundAxis"
+    };
+
+    /// <summary>
+    /// True when a vanilla crosshair is only reticle art: no skill-stock
+    /// displays and no components beyond drawing, layout and animation.
+    /// Such crosshairs get the standard template. Otherwise
+    /// <paramref name="extra"/> lists what it carries beyond art.
+    /// </summary>
+    internal static bool IsPureReticle(GameObject vanilla, out string extra)
+    {
+        var found = new List<string>();
+        if (vanilla.TryGetComponent(out CrosshairController controller) &&
+            controller.skillStockSpriteDisplays is { Length: > 0 } stocks)
+        {
+            found.Add($"{stocks.Length} skill-stock display(s)");
+        }
+
+        foreach (MonoBehaviour behaviour in vanilla.GetComponentsInChildren<MonoBehaviour>(true))
+        {
+            if (behaviour != null &&
+                !PresentationTypes.Contains(behaviour.GetType()) &&
+                !PresentationTypeNames.Contains(behaviour.GetType().Name))
+            {
+                found.Add($"{behaviour.GetType().Name} on '{behaviour.name}'");
+            }
+        }
+
+        // Large or screen-stretched art (scope frames, vignettes) is not a
+        // reticle even when it is only images; spread-driven art is.
+        var spreadArt = new HashSet<Transform>();
+        if (controller != null)
+        {
+            foreach (CrosshairController.SpritePosition spread in
+                     controller.spriteSpreadPositions ?? Array.Empty<CrosshairController.SpritePosition>())
+            {
+                if (spread.target)
+                {
+                    spreadArt.Add(spread.target);
+                }
+            }
+        }
+
+        foreach (Graphic graphic in vanilla.GetComponentsInChildren<Graphic>(true))
+        {
+            RectTransform rect = graphic.rectTransform;
+            if (spreadArt.Contains(rect))
+            {
+                continue;
+            }
+
+            if (rect.anchorMin != rect.anchorMax ||
+                Mathf.Abs(rect.sizeDelta.x) > LargeArtUnits ||
+                Mathf.Abs(rect.sizeDelta.y) > LargeArtUnits)
+            {
+                found.Add($"large art '{graphic.name}'");
+            }
+        }
+
+        extra = string.Join(", ", found.Distinct());
+        return found.Count == 0;
+    }
+
+    /// <summary>
+    /// A template for a vanilla crosshair that carries more than reticle art
+    /// (indicators, scope overlays, custom controllers) but has not been
+    /// curated: only its spread-driven art and root graphic are removed;
+    /// everything else stays exactly as the game draws it, under the
+    /// custom reticle.
+    ///
+    /// With <paramref name="stripCounts"/> its count pips (stock displays
+    /// shown from stock 1 up) are removed too, because the generic Count
+    /// Indicator shows that count; zero-stock status displays (e.g. a
+    /// "ready" prompt) stay driven by the controller.
+    /// </summary>
+    internal static GameObject BuildOverlay(GameObject vanillaCrosshair, Transform holder, bool stripCounts = false)
+    {
+        string suffix = stripCounts ? "_CountSuperseded" : "";
+        GameObject template = Clone(vanillaCrosshair, holder, "RoR2CustomCrosshair_" + vanillaCrosshair.name + suffix, out CrosshairController controller);
+
+        if (stripCounts)
+        {
+            var kept = new List<CrosshairController.SkillStockSpriteDisplay>();
+            foreach (CrosshairController.SkillStockSpriteDisplay display in
+                     controller.skillStockSpriteDisplays ?? Array.Empty<CrosshairController.SkillStockSpriteDisplay>())
+            {
+                if (!display.target)
+                {
+                    continue;
+                }
+
+                if (IsCountDisplay(display))
+                {
+                    display.target.SetActive(false);
+                }
+                else
+                {
+                    kept.Add(display);
+                }
+            }
+
+            controller.skillStockSpriteDisplays = kept.ToArray();
+        }
+
+        foreach (CrosshairController.SpritePosition spread in
+                 controller.spriteSpreadPositions ?? Array.Empty<CrosshairController.SpritePosition>())
+        {
+            if (spread.target)
+            {
+                spread.target.gameObject.SetActive(false);
+            }
+        }
+
+        foreach (RawImage remap in controller.remapSprites ?? Array.Empty<RawImage>())
+        {
+            if (remap)
+            {
+                remap.enabled = false;
+            }
+        }
+
+        controller.spriteSpreadPositions = Array.Empty<CrosshairController.SpritePosition>();
+        controller.remapSprites = Array.Empty<RawImage>();
+
+        foreach (Graphic graphic in template.GetComponents<Graphic>())
+        {
+            graphic.enabled = false;
+        }
+
+        AddProceduralCrosshair(template);
         return template;
     }
 
@@ -130,6 +308,10 @@ internal static class CrosshairPrefabFactory
 
         return template;
     }
+
+    /// <summary>A stock display that is one pip of a count (shown from stock 1 up), not a zero-stock status.</summary>
+    private static bool IsCountDisplay(CrosshairController.SkillStockSpriteDisplay display) =>
+        display.minimumStockCountToBeValid >= 1;
 
     private static bool IsAtCenter(Transform root, Transform target)
     {
@@ -160,6 +342,25 @@ internal static class CrosshairPrefabFactory
     private static void AddProceduralCrosshair(GameObject template)
     {
         RectTransform root = CreateRect(ProceduralRootName, template.transform);
+
+        // Generic indicators sit underneath the reticle layers so the reticle
+        // stays dominant. If they cannot be built, the template works without
+        // them and the policy keeps the vanilla information instead.
+        try
+        {
+            IndicatorLayer.Build(root, IndicatorLayerName);
+        }
+        catch (Exception exception)
+        {
+            IndicatorsUnavailable = true;
+            Transform partial = root.Find(IndicatorLayerName);
+            if (partial != null)
+            {
+                UnityEngine.Object.Destroy(partial.gameObject);
+            }
+
+            Plugin.Log.LogError($"Could not build indicator layer; vanilla indicators will be kept: {exception}");
+        }
 
         // Sibling order is draw order, bottom to top. Every layer is centered
         // on the root's pivot; ProceduralCrosshairView positions the parts.

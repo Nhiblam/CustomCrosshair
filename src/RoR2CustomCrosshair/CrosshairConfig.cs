@@ -23,6 +23,9 @@ internal static class CrosshairConfig
     internal static CircleSettings Circle = null!;
     internal static DotSettings CenterDot = null!;
 
+    internal static ProgressBarSettings ProgressBar = null!;
+    internal static CountIndicatorSettings CountIndicator = null!;
+
     /// <summary>Incremented whenever any setting changes.</summary>
     internal static int Revision { get; private set; }
 
@@ -49,6 +52,10 @@ internal static class CrosshairConfig
 
         Circle = new CircleSettings(config, "Circle");
         CenterDot = new DotSettings(config, "Center Dot");
+
+        // New sections bind with defaults; no migration needed.
+        ProgressBar = new ProgressBarSettings(config, "Progress Bar");
+        CountIndicator = new CountIndicatorSettings(config, "Count Indicator");
 
         MigrateFromVersion1(config);
 
@@ -77,6 +84,8 @@ internal static class CrosshairConfig
         OuterBars.Register();
         Circle.Register();
         CenterDot.Register();
+        ProgressBar.Register();
+        CountIndicator.Register();
     }
 
     /// <summary>

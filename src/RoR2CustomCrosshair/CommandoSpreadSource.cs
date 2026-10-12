@@ -1,4 +1,5 @@
 using System;
+using EntityStates;
 using EntityStates.Commando.CommandoWeapon;
 using RoR2;
 using RoR2.Skills;
@@ -8,21 +9,24 @@ using UnityEngine;
 namespace RoR2CustomCrosshair;
 
 /// <summary>
-/// Commando's Double Tap spread (Phase B prototype).
+/// Commando. The envelope follows the attack on the "Weapon" state machine
+/// (every Commando attack runs there):
 ///
-/// FirePistol2 fires with BulletAttack.minSpread = 0 and
-/// maxSpread = characterBody.spreadBloomAngle, then calls AddSpreadBloom.
-/// spreadBloomAngle = spreadBloomCurve.Evaluate(bloom), where bloom is a
-/// 0..1 value that each shot raises and CharacterBody.Update decays
-/// linearly. So spreadBloomAngle is exactly the half-angle, in degrees, that
-/// the next Double Tap bullet may deviate from the aim direction.
-///
-/// Active only while the primary slot's current skill runs FirePistol2, so a
-/// replaced primary (e.g. a Heresy item) does not show Double Tap spread.
+/// Suppressive Fire (FireBarrage): BulletAttack with the configured fixed
+/// min/maxSpread; bloom is only added afterwards.
+/// Sabotage: projectiles fanned in yaw by yawSpread, plus ApplySpread(maxSpread).
+/// Phase Blast (FireShotgunBlast, GenericBulletBaseState): maxSpread + bloom.
+/// Phase Round, Frag Grenade (GenericProjectileBaseState): fixed spread (zero
+/// in the shipped data).
+/// Otherwise (idle, Double Tap, utilities): Double Tap's next shot, whose
+/// BulletAttack uses maxSpread = spreadBloomAngle. Abilities that reset bloom
+/// (Tactical Slide sets it to 0, Phase Round adds -1) therefore shrink it.
 /// </summary>
 internal sealed class CommandoSpreadSource : ISpreadSource
 {
     private const string CommandoBodyName = "CommandoBody";
+
+    private readonly BodyStateMachine _weapon = new("Weapon");
 
     private BodyIndex _commandoBodyIndex = BodyIndex.None;
 
@@ -30,9 +34,10 @@ internal sealed class CommandoSpreadSource : ISpreadSource
     private SkillDef? _lastPrimarySkill;
     private bool _lastPrimaryIsDoubleTap;
 
-    // One summary line per body (validated in-game; no per-second samples).
+    // One summary line per body.
     private CharacterBody? _loggedBody;
 
+    // Validated in-game (B4): no per-second samples.
     public bool LogSamples => false;
 
     public bool CanHandle(CharacterBody body) => IsCommando(body);
@@ -40,15 +45,54 @@ internal sealed class CommandoSpreadSource : ISpreadSource
     public bool TrySample(CharacterBody body, out SpreadSample sample)
     {
         sample = default;
-
-        if (!IsCommando(body) || !PrimaryIsDoubleTap(body) || body.spreadBloomCurve == null)
+        if (!IsCommando(body) || body.spreadBloomCurve == null)
         {
             return false;
         }
 
-        sample = new SpreadSample(body.spreadBloomAngle, body.spreadBloomCurve.Evaluate(0f), body.spreadBloomAngle);
         LogBodyOnce(body);
+        float bloom = body.spreadBloomAngle;
+
+        switch (_weapon.StateOf(body))
+        {
+            case FireBarrage:
+                // Static fields configured by EntityStateConfiguration; BulletAttack default unit scales.
+                sample = new SpreadSample(FireBarrage.maxSpread, SpreadKind.Fixed, "Suppressive Fire");
+                return true;
+
+            case Sabotage sabotage:
+                sample = new SpreadSample(SabotageEnvelope(sabotage), SpreadKind.Fixed, sabotage.GetType().Name);
+                return true;
+
+            case EntityState state when AttackSpread.TryFromState(state, bloom, out sample):
+                return true;
+        }
+
+        if (!PrimaryIsDoubleTap(body))
+        {
+            return false;
+        }
+
+        // FirePistol2: minSpread 0, maxSpread = spreadBloomAngle, unit scales.
+        sample = new SpreadSample(bloom, SpreadKind.Bloom, "Double Tap");
         return true;
+    }
+
+    /// <summary>
+    /// Sabotage.FireProjectile rotates projectile n (0-based) in yaw by
+    /// (count / 2 - n) * yawSpread - yawSpread / 2, then applies
+    /// ApplySpread(minSpread, maxSpread) at unit scale.
+    /// </summary>
+    private static float SabotageEnvelope(Sabotage sabotage)
+    {
+        float widest = 0f;
+        for (int n = 0; n < Mathf.Max(1, sabotage.projectileCount); n++)
+        {
+            float angle = (sabotage.projectileCount / 2f - n) * sabotage.yawSpread - sabotage.yawSpread / 2f;
+            widest = Mathf.Max(widest, Mathf.Abs(angle));
+        }
+
+        return widest + sabotage.maxSpread;
     }
 
     private bool IsCommando(CharacterBody body)
@@ -98,18 +142,12 @@ internal sealed class CommandoSpreadSource : ISpreadSource
         if (crosshair && crosshair.TryGetComponent(out CrosshairController controller))
         {
             vanilla = $"{crosshair.name} maxSpreadAngle {controller.maxSpreadAngle:0.###}";
-            if (controller.spriteSpreadPositions is { Length: > 0 } positions)
-            {
-                CrosshairController.SpritePosition first = positions[0];
-                vanilla += $", sprite '{(first.target ? first.target.name : "?")}' moves {first.zeroPosition} -> {first.onePosition}";
-            }
         }
 
         AnimationCurve curve = body.spreadBloomCurve;
         Plugin.Log.LogDebug(
-            $"[Spread] Commando source active: primary '{_lastPrimarySkill?.skillName}', " +
-            $"spread {curve.Evaluate(0f):0.###} deg at rest, {curve.Evaluate(1f):0.###} deg at full bloom, " +
-            $"decay time {body.spreadBloomDecayTime:0.###} s (scales with attack speed: {body.spreadBloomDecayWithAttackSpeed}), " +
-            $"vanilla crosshair: {vanilla}.");
+            $"[Spread] Commando source active: Double Tap spread {curve.Evaluate(0f):0.###} deg with no bloom, " +
+            $"{curve.Evaluate(1f):0.###} deg at full bloom, decay {body.spreadBloomDecayTime:0.###} s; " +
+            $"Suppressive Fire fixed {FireBarrage.maxSpread:0.###} deg; vanilla crosshair: {vanilla}.");
     }
 }

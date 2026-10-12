@@ -79,6 +79,18 @@ internal readonly struct PixelFrame
         return Mathf.Floor(CenterFraction + pixels + 0.5f) - CenterFraction;
     }
 
+    /// <summary>Whole pixels, zero allowed (spacing).</summary>
+    internal int WholePixels(float logical)
+    {
+        return Mathf.Max(0, RoundPx(logical * ResolutionScale));
+    }
+
+    /// <summary>Snaps an offset from the center so the edge lands on a screen pixel boundary.</summary>
+    internal float SnapEdge(float offset)
+    {
+        return Mathf.Floor(CenterFraction + offset + 0.5f) - CenterFraction;
+    }
+
     internal float ToLocal(float pixels)
     {
         return pixels / PixelsPerUnit;
@@ -286,14 +298,16 @@ internal sealed class RingPart
     /// <param name="inner">Inner edge radius in pixels; 0 for a filled disc.</param>
     /// <param name="outer">Outer edge radius in pixels.</param>
     /// <param name="border">Border width in pixels on each side; 0 for none.</param>
-    internal void Apply(in PixelFrame frame, float inner, float outer, int border, Color fill, Color borderColor)
+    /// <param name="centerOffset">Disc center relative to the shared center, in pixels (indicator dots).</param>
+    internal void Apply(in PixelFrame frame, float inner, float outer, int border, Color fill, Color borderColor, Vector2 centerOffset = default)
     {
         float extent = outer + border + 1f;
         int segments = Mathf.Clamp(Mathf.CeilToInt(2f * Mathf.PI * (outer + border) / SegmentPixels), MinSegments, MaxSegments);
 
-        // The pivot sits exactly on the shared center. Colors live in the
-        // generated vertices; the Image's own color is unused.
-        frame.Place(_image.rectTransform, new Vector4(-extent, -extent, extent, extent));
+        // The pivot sits on the shared center (plus any offset). Colors live in
+        // the generated vertices; the Image's own color is unused.
+        frame.Place(_image.rectTransform, new Vector4(
+            centerOffset.x - extent, centerOffset.y - extent, centerOffset.x + extent, centerOffset.y + extent));
         _image.color = Color.white;
         _mesh.SetShape(
             frame.ToLocal(inner),

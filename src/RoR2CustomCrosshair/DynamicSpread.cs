@@ -3,28 +3,43 @@ using UnityEngine;
 
 namespace RoR2CustomCrosshair;
 
+/// <summary>How the current firing envelope behaves (diagnostics).</summary>
+internal enum SpreadKind
+{
+    /// <summary>The relevant attack has no angular spread.</summary>
+    Zero,
+
+    /// <summary>Constant spread that does not depend on bloom.</summary>
+    Fixed,
+
+    /// <summary>Spread that includes the body's current bloom.</summary>
+    Bloom
+}
+
 /// <summary>
-/// Actual weapon spread for the current shot, as a cone half-angle in
-/// degrees around the aim direction (BulletAttack deviates each bullet by
-/// Random.Range(minSpread, maxSpread) degrees from its aim vector).
+/// The actual current firing envelope: the largest angle, in degrees, by
+/// which a bullet or projectile of the relevant attack can leave the aim
+/// direction if it fires now. Includes inherent/fixed spread, accumulated
+/// bloom and any ability-specific spread. Absolute: nothing is subtracted.
 /// </summary>
 internal readonly struct SpreadSample
 {
-    /// <summary>Half-angle the next shot may deviate by, in degrees.</summary>
-    internal readonly float CurrentDegrees;
+    /// <summary>Envelope half-angle in degrees.</summary>
+    internal readonly float Degrees;
 
-    /// <summary>Half-angle with no accumulated bloom, in degrees.</summary>
-    internal readonly float RestingDegrees;
+    internal readonly SpreadKind Kind;
 
-    /// <summary>The body's spreadBloomAngle behind this sample (diagnostics only).</summary>
-    internal readonly float BloomDegrees;
+    /// <summary>Attack the envelope describes (diagnostics).</summary>
+    internal readonly string Context;
 
-    internal SpreadSample(float currentDegrees, float restingDegrees, float bloomDegrees)
+    internal SpreadSample(float degrees, SpreadKind kind, string context)
     {
-        CurrentDegrees = currentDegrees;
-        RestingDegrees = restingDegrees;
-        BloomDegrees = bloomDegrees;
+        Degrees = degrees < 0f ? 0f : degrees;
+        Kind = Degrees <= 0f ? SpreadKind.Zero : kind;
+        Context = context;
     }
+
+    internal static SpreadSample None(string context) => new(0f, SpreadKind.Zero, context);
 }
 
 /// <summary>
